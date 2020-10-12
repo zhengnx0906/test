@@ -2,6 +2,7 @@
 using namespace cv;
 using namespace std;
 #include <opencv2/imgproc.hpp>
+
 /**/
 
 
@@ -62,28 +63,51 @@ int main(int argc, char ** argv)
         {
             Mat gray,Bina;
             vector<vector<Point> > contours;
+
             vector<Vec4i> hierarchy;
             cvtColor( src, gray, COLOR_BGR2GRAY );//huidu
             blur( gray, gray, Size(3,3) );
             threshold(gray, Bina, 230, 255, THRESH_BINARY);
             findContours(Bina, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
             std::sort(contours.begin(),contours.end(),ContoursSortFun);//按面积把轮廓大小排序
-
+            Point2f center;
             int size=contours.size();
             if(size>3){size=3;}//我的想法是找一块一块的轮廓，如果大于3就让他只找三个最大轮廓，实际未操作
             /// 绘出轮廓
             Mat drawing = Mat::zeros(src.size(), CV_8UC3);
             vector<Moments> mom(contours.size());
-	     vector<Point2f> m(contours.size());
+	        vector<Point2f> m(contours.size());
+            float x=0;
+            float y=0;
             for (int i = 0; i < contours.size(); i++)
             {
                 mom[i] = moments(contours[i], false);
-		m[i] = Point(static_cast<float>(mom[i].m10 / mom[i].m00), static_cast<float>(mom[i].m01 / mom[i].m00));
-		//中心点坐标
+		        m[i] = Point(static_cast<float>(mom[i].m10 / mom[i].m00), static_cast<float>(mom[i].m01 / mom[i].m00));
+		        //中心点坐标
                 Scalar color = Scalar(255,255,0);
                 drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point());
                 circle(drawing, m[i], 3, (0, 255, 255), -1);
             }
+            if (size >0)
+            {
+                for (int i = 0; i < size; i++)
+                {
+                    x=m[i].x+x;
+                    y=m[i].y+y;
+                }
+            x=x/size;
+            y=y/size;
+            center.x=x;
+            center.y=y;
+            char label[1024]={0};
+            int font_face = FONT_HERSHEY_COMPLEX; 
+	        double font_scale = 0.5;
+	        int thickness = 2;
+            circle(drawing, center, 10, (255, 0, 255), -1);
+            sprintf(label, "(%f, %f)", x, y);
+            putText(drawing, label, Point2i(int(x-30),int(y-30)), font_face, font_scale, Scalar(0, 255, 255), thickness, 8, 0);
+            }
+
             //Mat test;
             //test=convertTo3Channels(Bina);
             resImgPublisher->Publish(drawing); // 处理完的图像可以通过该方式发布出去，然后通过rqt中的image_view工具查看
@@ -100,5 +124,4 @@ int main(int argc, char ** argv)
     }
     return 0;
 }
-
 
