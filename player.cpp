@@ -4,25 +4,8 @@ using namespace std;
 #include <opencv2/imgproc.hpp>
 
 /**/
-
-
-static inline bool ContoursSortFun(vector<cv::Point> contour1,vector<cv::Point> contour2)  
-{  
-    return (cv::contourArea(contour1) > cv::contourArea(contour2));  
-} 
-
-Mat convertTo3Channels(const Mat& binImg)
-{
-    Mat three_channel = Mat::zeros(binImg.rows,binImg.cols,CV_8UC3);
-    vector<Mat> channels;
-    for (int i=0;i<3;i++)
-    {
-        channels.push_back(binImg);
-    }
-    merge(channels,three_channel);
-    return three_channel;
-}
-
+int piict_x=320;
+int pict_y=240;
 
 int main(int argc, char ** argv)
 {
@@ -36,10 +19,11 @@ int main(int argc, char ** argv)
     common::msg::BodyTask btask;
     common::msg::HeadTask htask;
     btask.type = btask.TASK_WALK;
-    btask.count = 2;
-    btask.step = 0.03;
-    htask.yaw = 0.0;
-    htask.pitch = 45.0;
+    btask.count = 1;
+    btask.step = 0.01;
+    
+    htask.yaw = 0.0;//
+    htask.pitch = 45.0;//fu yan
     auto bodyTaskNode = std::make_shared<BodyTaskPublisher>(robotName);
     auto headTaskNode = std::make_shared<HeadTaskPublisher>(robotName);
     auto imageSubscriber = std::make_shared<ImageSubscriber>(robotName);
@@ -58,66 +42,69 @@ int main(int argc, char ** argv)
         auto imuData = imuSubscriber->GetData();
         auto src = imageSubscriber->GetImage().clone();
         auto headAngle = headSubscriber->GetData();
-        //RCLCPP_INFO(playerNode->get_logger(),"Hey! I'm %s",argv[1]);
+        Point center;
+        size_t size;
+       // RCLCPP_INFO(playerNode->get_logger(),"yaws: %f",imuData.yaw);
         if (!src.empty()) 
         {
-            Mat gray,Bina;
-            vector<vector<Point> > contours;
-
-            vector<Vec4i> hierarchy;
-            cvtColor( src, gray, COLOR_BGR2GRAY );//huidu
-            blur( gray, gray, Size(3,3) );
-            threshold(gray, Bina, 230, 255, THRESH_BINARY);
-            findContours(Bina, contours, hierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
-            std::sort(contours.begin(),contours.end(),ContoursSortFun);//按面积把轮廓大小排序
-            Point2f center;
-            int size=contours.size();
-            if(size>3){size=3;}//我的想法是找一块一块的轮廓，如果大于3就让他只找三个最大轮廓，实际未操作
-            /// 绘出轮廓
-            Mat drawing = Mat::zeros(src.size(), CV_8UC3);
-            vector<Moments> mom(contours.size());
-	        vector<Point2f> m(contours.size());
-            float x=0;
-            float y=0;
-            for (int i = 0; i < contours.size(); i++)
+         // 在这里写图像处理
+            Mat cimg;
+            medianBlur(src, src, 5);
+            cvtColor(src,cimg,COLOR_BGR2GRAY);
+            threshold(cimg, cimg, 230, 255, THRESH_BINARY);
+            std::vector<Vec3f> circles;
+            HoughCircles(cimg, circles, HOUGH_GRADIENT, 1, 600,100, 15, 20, 70  );
+        for (size_t i = 0; i < circles.size(); i++)
+        {
+            if(i==0)
             {
-                mom[i] = moments(contours[i], false);
-		        m[i] = Point(static_cast<float>(mom[i].m10 / mom[i].m00), static_cast<float>(mom[i].m01 / mom[i].m00));
-		        //中心点坐标
-                Scalar color = Scalar(255,255,0);
-                drawContours(drawing, contours, i, color, 1, 8, hierarchy, 0, Point());
-                circle(drawing, m[i], 3, (0, 255, 255), -1);
+                center.x=cvRound(circles[i][0]);
+                center.y=cvRound(circles[i][1]);
             }
-            if (size >0)
-            {
-                for (int i = 0; i < size; i++)
-                {
-                    x=m[i].x+x;
-                    y=m[i].y+y;
-                }
-            x=x/size;
-            y=y/size;
-            center.x=x;
-            center.y=y;
-            char label[1024]={0};
-            int font_face = FONT_HERSHEY_COMPLEX; 
-	        double font_scale = 0.5;
-	        int thickness = 2;
-            circle(drawing, center, 10, (255, 0, 255), -1);
-            sprintf(label, "(%f, %f)", x, y);
-            putText(drawing, label, Point2i(int(x-30),int(y-30)), font_face, font_scale, Scalar(0, 255, 255), thickness, 8, 0);
-            }
-
+            Point center1(cvRound(circles[i][0]), cvRound(circles[i][1]));
+            int radius = cvRound(circles[i][2]);
+            //绘制圆心  
+            circle(src, center1, 3, Scalar(0, 255, 0), -1, 8, 0);
+            //绘制圆轮廓  
+            circle(src, center1, radius, Scalar(155, 50, 255), 3, 8, 0);
+        }
+            size=circles.size();
             //Mat test;
             //test=convertTo3Channels(Bina);
-            resImgPublisher->Publish(drawing); // 处理完的图像可以通过该方式发布出去，然后通过rqt中的image_view工具查看
+            resImgPublisher->Publish(src); // 处理完的图像可以通过该方式发布出去，然后通过rqt中的image_view工具查看
         }
         // write your code here
-        if (robotName.back() == '1')
+        if (size>0)
         {
-            btask.step = -1; // 1 号机器人后退
-        }
 
+            if(center.x<=315)
+            {
+                btask.step=0.01;
+                btask.lateral=0.02;//left
+            }
+            if(center.x>=325)
+            {
+                btask.step=0.01;
+                btask.lateral=-0.02;//right
+            }
+            if (315<center.x && center.x<325)
+            {
+                btask.step=0.1;
+                btask.lateral=0;//right
+            }
+        }
+        if(-177<imuData.yaw&&imuData.yaw<0)
+        {
+           btask.turn=-180-imuData.yaw;
+        }
+        if(0<imuData.yaw&&imuData.yaw<177)
+        {
+            btask.turn=180-imuData.yaw;
+        }
+        if(imuData.yaw>=177||imuData.yaw<=-177)
+        {
+            btask.turn=0;
+        }
         bodyTaskNode->Publish(btask);
         headTaskNode->Publish(htask);
         loop_rate.sleep();
